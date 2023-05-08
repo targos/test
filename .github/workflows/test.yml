@@ -1,0 +1,17 @@
+on:
+  workflow_dispatch:
+    inputs:
+      public:
+        description: Test public
+        type: boolean
+        default: false
+        required: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test
+        env:
+          IS_PUBLIC: ${{ inputs.public }}
+        run: 'echo "public: $IS_PUBLIC"'
