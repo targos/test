@@ -1,17 +1,62 @@
+name: Release a Node.js package
+
 on:
   workflow_dispatch:
     inputs:
       public:
-        description: Test public
         type: boolean
         default: false
         required: false
 
+env:
+  npm-token: npm123
+  github-token: gh123
+
 jobs:
-  test:
+  release-please:
     runs-on: ubuntu-latest
+    outputs:
+      publish_github: ${{ steps.extract-registries.outputs.publish_github }}
+      publish_npm: ${{ steps.extract-registries.outputs.publish_npm }}
     steps:
-      - name: Test
+      - uses: actions/checkout@v3
+      - name: Get package name
+        run: echo "PACKAGE_NAME=@zakodium/123" >> $GITHUB_ENV
+      - name: Extract registries to publish
+        id: extract-registries
         env:
           IS_PUBLIC: ${{ inputs.public }}
-        run: 'echo "public: $IS_PUBLIC"'
+        run: |
+          # If the PACKAGE_NAME starts with @ and has a slash, it's a scoped package.
+          # In that case, we need to publish to the GitHub Package Registry and
+          # optionally to the public npm registry (when IS_PUBLIC is true).
+          if [[ "$PACKAGE_NAME" =~ ^@[^/]+/[^/]+$ ]]; then
+            if [ "$IS_PUBLIC" = "true" ]; then
+              echo "publish_github=true" >> $GITHUB_OUTPUT
+              echo "publish_npm=true" >> $GITHUB_OUTPUT
+            else
+              echo "publish_github=true" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "publish_npm=true" >> $GITHUB_OUTPUT
+          fi
+  publish-package:
+    needs: release-please
+    if: ${{ (needs.release-please.outputs.publish_npm=='true' || needs.release-please.outputs.publish_github=='true') }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: npm
+            enabled: ${{ needs.release-please.outputs.publish_npm=='true' }}
+            registry-url: 'https://registry.npmjs.org'
+          - id: github
+            enabled: ${{ needs.release-please.outputs.publish_github=='true' }}
+            registry-url: 'https://npm.pkg.github.com'
+    steps:
+      - run: 'echo "url: ${{ matrix.registry-url }}"'
+      - name: Publish package to ${{ matrix.id }}
+        run: 'echo "token: ${{ env.NODE_AUTH_TOKEN }}"'
+        env:
+          NODE_AUTH_TOKEN: ${{ (matrix.id=='npm' && secrets.npm-token) || (matrix.id=='github' && secrets.github-token) }}
